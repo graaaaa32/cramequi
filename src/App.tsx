@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { Download, Plus, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
-import puppeteer from 'puppeteer';
 
 interface ComplaintResult {
   url: string;
-  summary: string;
   title: string;
   complaintText: string;
   date: string;
@@ -38,35 +36,6 @@ function App() {
     }
   };
 
-  const scrapeComplaint = async (url: string) => {
-    try {
-      const browser = await puppeteer.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(url);
-
-      // Wait for the complaint content to load
-      await page.waitForSelector('.complain-body');
-
-      const complaintData = await page.evaluate(() => {
-        const titleElement = document.querySelector('.complain-title');
-        const bodyElement = document.querySelector('.complain-body');
-        const dateElement = document.querySelector('.complaint-date');
-
-        return {
-          title: titleElement ? titleElement.textContent?.trim() : '',
-          complaintText: bodyElement ? bodyElement.textContent?.trim() : '',
-          date: dateElement ? dateElement.textContent?.trim() : '',
-        };
-      });
-
-      await browser.close();
-      return complaintData;
-    } catch (error) {
-      console.error(`Error scraping ${url}:`, error);
-      return null;
-    }
-  };
-
   const analyzeComplaints = async () => {
     setAnalyzing(true);
     const newResults: ComplaintResult[] = [];
@@ -74,17 +43,15 @@ function App() {
     try {
       for (const link of links) {
         if (link.trim()) {
-          const complaintData = await scrapeComplaint(link);
-          if (complaintData) {
-            const summary = `${complaintData.complaintText?.substring(0, 200)}...`;
-            newResults.push({
-              url: link,
-              summary,
-              title: complaintData.title || '',
-              complaintText: complaintData.complaintText || '',
-              date: complaintData.date || new Date().toISOString(),
-            });
-          }
+          const response = await axios.post('http://localhost:3000/api/scrape', { url: link });
+          const { title, complaintText, date } = response.data;
+          
+          newResults.push({
+            url: link,
+            title,
+            complaintText,
+            date: date || new Date().toLocaleString()
+          });
         }
       }
       setResults(newResults);
@@ -98,8 +65,7 @@ function App() {
     const exportData = results.map(result => ({
       URL: result.url,
       Título: result.title,
-      'Texto Completo': result.complaintText,
-      Resumo: result.summary,
+      'Texto da Reclamação': result.complaintText,
       Data: result.date,
     }));
 
@@ -174,7 +140,7 @@ function App() {
                   <h4 className="font-medium mb-2">Texto da Reclamação:</h4>
                   <p className="text-gray-700">{result.complaintText}</p>
                 </div>
-                <p className="text-sm text-gray-500">Data: {new Date(result.date).toLocaleString()}</p>
+                <p className="text-sm text-gray-500">Data: {result.date}</p>
               </div>
             ))}
           </div>
