@@ -1,11 +1,21 @@
 import React, { useState } from 'react';
 import { Download, Plus, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import axios from 'axios';
+import puppeteer from 'puppeteer';
+
+interface ComplaintResult {
+  url: string;
+  summary: string;
+  title: string;
+  complaintText: string;
+  date: string;
+}
 
 function App() {
   const [links, setLinks] = useState<string[]>(['']);
   const [analyzing, setAnalyzing] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<ComplaintResult[]>([]);
 
   const handleLinkChange = (index: number, value: string) => {
     const newLinks = [...links];
@@ -28,17 +38,56 @@ function App() {
     }
   };
 
+  const scrapeComplaint = async (url: string) => {
+    try {
+      const browser = await puppeteer.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(url);
+
+      // Wait for the complaint content to load
+      await page.waitForSelector('.complain-body');
+
+      const complaintData = await page.evaluate(() => {
+        const titleElement = document.querySelector('.complain-title');
+        const bodyElement = document.querySelector('.complain-body');
+        const dateElement = document.querySelector('.complaint-date');
+
+        return {
+          title: titleElement ? titleElement.textContent?.trim() : '',
+          complaintText: bodyElement ? bodyElement.textContent?.trim() : '',
+          date: dateElement ? dateElement.textContent?.trim() : '',
+        };
+      });
+
+      await browser.close();
+      return complaintData;
+    } catch (error) {
+      console.error(`Error scraping ${url}:`, error);
+      return null;
+    }
+  };
+
   const analyzeComplaints = async () => {
     setAnalyzing(true);
+    const newResults: ComplaintResult[] = [];
+
     try {
-      // Here we would implement the Puppeteer scraping logic
-      // For now, we'll just simulate some results
-      const mockResults = links.map(link => ({
-        url: link,
-        summary: 'Análise pendente - Implementação do Puppeteer necessária',
-        date: new Date().toISOString(),
-      }));
-      setResults(mockResults);
+      for (const link of links) {
+        if (link.trim()) {
+          const complaintData = await scrapeComplaint(link);
+          if (complaintData) {
+            const summary = `${complaintData.complaintText?.substring(0, 200)}...`;
+            newResults.push({
+              url: link,
+              summary,
+              title: complaintData.title || '',
+              complaintText: complaintData.complaintText || '',
+              date: complaintData.date || new Date().toISOString(),
+            });
+          }
+        }
+      }
+      setResults(newResults);
     } catch (error) {
       console.error('Error analyzing complaints:', error);
     }
@@ -46,7 +95,15 @@ function App() {
   };
 
   const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(results);
+    const exportData = results.map(result => ({
+      URL: result.url,
+      Título: result.title,
+      'Texto Completo': result.complaintText,
+      Resumo: result.summary,
+      Data: result.date,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Análise Reclame Aqui');
     XLSX.writeFile(wb, 'analise-reclame-aqui.xlsx');
@@ -59,16 +116,15 @@ function App() {
       <div className="space-y-4 mb-8">
         {links.map((link, index) => (
           <div key={index} className="flex gap-2">
-            <input
-              type="url"
+            <textarea
               value={link}
               onChange={(e) => handleLinkChange(index, e.target.value)}
               placeholder="Cole o link do Reclame Aqui aqui"
-              className="flex-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] resize-vertical"
             />
             <button
               onClick={() => removeLink(index)}
-              className="p-2 text-red-500 hover:bg-red-50 rounded"
+              className="p-2 text-red-500 hover:bg-red-50 rounded h-10"
               title="Remover link"
             >
               <Trash2 size={20} />
@@ -112,8 +168,12 @@ function App() {
           <div className="space-y-4">
             {results.map((result, index) => (
               <div key={index} className="border-b pb-4">
-                <p className="font-medium">URL: {result.url}</p>
-                <p className="text-gray-600">{result.summary}</p>
+                <h3 className="font-medium text-lg">{result.title}</h3>
+                <p className="text-sm text-gray-500 mb-2">URL: {result.url}</p>
+                <div className="bg-gray-50 p-4 rounded mb-2">
+                  <h4 className="font-medium mb-2">Texto da Reclamação:</h4>
+                  <p className="text-gray-700">{result.complaintText}</p>
+                </div>
                 <p className="text-sm text-gray-500">Data: {new Date(result.date).toLocaleString()}</p>
               </div>
             ))}
